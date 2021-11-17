@@ -1,5 +1,4 @@
 from pprint import pprint
-from datetime import datetime
 import requests
 import json
 from tqdm import tqdm
@@ -29,80 +28,65 @@ class YaUploader:
         if response.status_code == 201:
             print(f"Папка '{folder_name}' успешно создана.")
             return folder_name
-        if response.status_code == 409:
-            print(f"Папка '{folder_name}' уже существует.")
-            question = str(input('Хотите создать новую папку для фото? (y/n): '))
-            if question == 'n':
-                while question == 'n':
-                    question = str(input('Тогда фото не будут загружены. Создадим новую папку?? (y/n): '))
-                    if question == 'n':
-                        print('Новая папка для фотографий не была создана.')
-                        break
-                    elif question == 'y':
-                        counter = 1
-                        new_folder_name = folder_name + '_' + str(counter)
-                        new_params = {"path": new_folder_name}
-                        new_response = requests.put(create_url, headers=headers, params=new_params)
-                        while new_response.status_code == 409:
-                            print(f"Папка '{new_folder_name}' уже существует.")
-                            counter += 1
-                            new_folder_name = folder_name + '_' + str(counter)
-                            new_params = {"path": new_folder_name}
-                            new_response = requests.put(create_url, headers=headers, params=new_params)
-                        if new_response.status_code == 201:
-                            print(f"Папка '{new_folder_name}' успешно создана.")
-                            return new_folder_name
-                    else:
-                        print('Вы ввели некорректный символ.')
-                        continue
-            elif question == 'y':
-                counter = 1
+        elif response.status_code == 409:
+            counter = 1
+            new_folder_name = folder_name + '_' + str(counter)
+            new_params = {"path": new_folder_name}
+            new_response = requests.put(create_url, headers=headers, params=new_params)
+            while new_response.status_code == 409:
+                counter += 1
                 new_folder_name = folder_name + '_' + str(counter)
                 new_params = {"path": new_folder_name}
                 new_response = requests.put(create_url, headers=headers, params=new_params)
-                while new_response.status_code == 409:
-                    print(f"Папка '{new_folder_name}' уже существует.")
-                    counter += 1
-                    new_folder_name = folder_name + '_' + str(counter)
-                    new_params = {"path": new_folder_name}
-                    new_response = requests.put(create_url, headers=headers, params=new_params)
-                if new_response.status_code == 201:
-                    print(f"Папка '{new_folder_name}' успешно создана.")
-                    return new_folder_name
-            else:
-                print('Вы ввели некорректный символ. Создание папки прекращено.')
-                return
+            if new_response.status_code == 201:
+                print(f"Папка '{new_folder_name}' успешно создана.")
+                return new_folder_name
         else:
             response.raise_for_status()
 
-    def upload_from_url(self, photos_dict):
+    def upload_from_url(self, photos_dict, counter=5):
         if photos_dict is None:
             print('Выполнение операции прервано.')
             return
-        upload_url = self.url + '/upload'
-        headers = self.get_headers()
-        folder = self._create_folder(photos_dict)
-        if folder is None:
-            print('Загрузка файлов остановлена.')
+        if counter <= 0:
+            print('Фотографии не были загружены.')
             return
         else:
-            for profile, photos in photos_dict.items():
-                bar = tqdm(total=len(photos), desc='Загрузка фото на Я.Диск', ncols=100, unit=' photos',
-                           bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}, {rate_fmt}{postfix}]')
-                data = []
-                for photo in photos:
-                    path = folder + '/' + photo['file_name']
-                    source_url = photo['source_url']
-                    params = {"path": path, "url": source_url}
-                    response = requests.post(upload_url, headers=headers, params=params)
-                    response.raise_for_status()
-                    bar.update()
-                    if response.status_code == 202:
-                        data.append({'file_name': photo['file_name'], 'size': photo['size']})
-                bar.close()
-                with open('successful_upload.json', 'w', encoding='utf-8') as file:
-                    json.dump(data, file, ensure_ascii=False, indent=2)
-            print('Все фотографии успешно загружены.')
+            upload_url = self.url + '/upload'
+            headers = self.get_headers()
+            folder = self._create_folder(photos_dict)
+            if folder is None:
+                print('Загрузка файлов остановлена.')
+                return
+            else:
+                for profile, photos in photos_dict.items():
+                    if counter <= len(photos):
+                        bar = tqdm(total=counter, desc='Загрузка фото на Я.Диск', ncols=100, unit=' photos',
+                                   bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}, {rate_fmt}{postfix}]')
+                    else:
+                        bar = tqdm(total=len(photos), desc='Загрузка фото на Я.Диск', ncols=100, unit=' photos',
+                                   bar_format='{l_bar}{bar}| {n_fmt}/{total_fmt} [{elapsed}, {rate_fmt}{postfix}]')
+                    data = []
+                    i = 0
+                    for photo in photos:
+                        if i < counter:
+                            path = folder + '/' + photo['file_name']
+                            source_url = photo['source_url']
+                            params = {"path": path, "url": source_url}
+                            response = requests.post(upload_url, headers=headers, params=params)
+                            response.raise_for_status()
+                            bar.update()
+                            if response.status_code == 202:
+                                i += 1
+                                data.append({'file_name': photo['file_name'], 'size': photo['size']})
+                    bar.close()
+                    with open('successful_upload.json', 'w', encoding='utf-8') as file:
+                        json.dump(data, file, ensure_ascii=False, indent=2)
+                    if counter > len(photos):
+                        print(f'Вы указали бОльшее число({counter}), чем имеется в профиле({len(photos)}).\n'
+                              'Все фотографии были успешно загружены.')
+                    else:
+                        print(f'{i} из {len(photos)} фотографий успешно загружены.')
 
 
 class VkUser:
@@ -133,25 +117,21 @@ class VkUser:
             result_list = response['response']['items']
             profile_photos_dict = {}
             photos_list = []
+            files_name_list = []
             for photo in result_list:
                 file_name = str(photo['likes']['count']) + '.jpg'
                 size = str(photo['sizes'][-1]['width']) + 'x' + str(photo['sizes'][-1]['height'])
                 source_url = photo['sizes'][-1]['url']
-                if len(photos_list) == 0:
+                if len(files_name_list) == 0:
+                    files_name_list.append(file_name)
                     photos_list.append({'file_name': file_name, 'size': size, 'source_url': source_url})
                 else:
-                    check = True
-                    for element in photos_list:
-                        if file_name != element['file_name']:
-                            check = False
-                        elif file_name == element['file_name']:
-                            unix_date = int(photo['date'])
-                            date_t = str(datetime.utcfromtimestamp(unix_date).strftime('%Y-%m-%d_%H-%M-%S'))
-                            file_name = str(photo['likes']['count']) + '_' + date_t + '.jpg'
-                            photos_list.append({'file_name': file_name, 'size': size, 'source_url': source_url})
-                            check = True
-                            break
-                    if check is False:
+                    if file_name in files_name_list:
+                        file_name = str(photo['likes']['count']) + '_' + str(photo['date']) + '.jpg'
+                        files_name_list.append(file_name)
+                        photos_list.append({'file_name': file_name, 'size': size, 'source_url': source_url})
+                    else:
+                        files_name_list.append(file_name)
                         photos_list.append({'file_name': file_name, 'size': size, 'source_url': source_url})
         profile_photos_dict[ids] = photos_list
         return profile_photos_dict
@@ -161,7 +141,8 @@ if __name__ == '__main__':
     HELP = '''
     Список доступных команд:
     gpp - получить фотографии профиля пользователя VK
-    upp - загрузить фотографии профиля пользователя VK на Я.Диск
+    upp - загрузить фотографии профиля пользователя VK на Я.Диск (по умолчанию 5 шт)
+    upp_x - загрузить произвольное кол-во фотографий профиля пользователя VK на Я.Диск
     change_id - ввести id пользователя VK
     exit - завершить работу программы
     '''
@@ -188,6 +169,12 @@ if __name__ == '__main__':
                     vk_id = str(input('Введите id пользователя VK: '))
                 photos_dict = vk_client.get_user_profile_photos(vk_id)
                 ya_client.upload_from_url(photos_dict)
+            elif str(command) == 'upp_x':
+                if vk_id == '':
+                    vk_id = str(input('Введите id пользователя VK: '))
+                n = int(input('Введите количество фотографий (числом), подлежащих загрузке на Я.Диск: '))
+                photos_dict = vk_client.get_user_profile_photos(vk_id)
+                ya_client.upload_from_url(photos_dict, n)
             elif str(command) == 'change_id':
                 vk_id = str(input('Введите новый id пользователя VK: '))
             elif command.upper() == 'HELP':
